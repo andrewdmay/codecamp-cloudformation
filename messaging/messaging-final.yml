@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SNS to SQS Fan out example
+
+Parameters:
+  Prefix:
+    Default: CodeCamp
+    Description: Prefix used in Topic and Queue Names
+    Type: String
+  RedriveReceiveCount:
+    Default: 5
+    Description: Max number of deliveries to use before sending to DLQ for SQS Queues
+      configured with Redrive Policy
+    Type: Number
+  VisibilityTimeoutValue:
+    Default: '300'
+    Description: The period of time in seconds during which Amazon SQS prevents other
+      consuming components from receiving and processing a message
+    Type: Number
+
+Resources:
+  # Topic
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      # Queue 1 subscription defined directly on Topic
+      Subscription:
+      - Endpoint: !GetAtt Queue1.Arn
+        Protocol: sqs
+      TopicName: !Sub ${Prefix}-Topic
+
+  # Queues
+  Queue1:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Prefix}-Queue1
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt Queue1DLQ.Arn
+        maxReceiveCount: !Ref RedriveReceiveCount
+      VisibilityTimeout: !Ref VisibilityTimeoutValue
+  Queue1DLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Prefix}-Queue1-DLQ
+
+  Queue2:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Prefix}-Queue2
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt Queue2DLQ.Arn
+        maxReceiveCount: !Ref RedriveReceiveCount
+      VisibilityTimeout: !Ref VisibilityTimeoutValue
+  Queue2DLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Prefix}-Queue2-DLQ
+
+  # Another way to define a Subscription
+  Queue2Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt Queue2.Arn
+      Protocol: sqs
+      TopicArn: !Ref Topic
+
+  # Queue Policy to give Topic permission to write to Queues
+  EventPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Id: QueuePolicy
+        Version: '2012-10-17'
+        Statement:
+        - Action:
+          - sqs:SendMessage
+          Condition:
+            ArnLike:
+              aws:SourceArn: !Sub 'arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${Prefix}-*'
+          Effect: Allow
+          Principal: '*'
+          Resource: '*'
+          Sid: Allow-SendMessage-To-Queues
+      Queues:
+      - !Ref Queue1
+      - !Ref Queue2
