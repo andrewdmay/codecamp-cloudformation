@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: SNS to SQS Fan out example
 
 ################################################
-# Both Queues subscribed to Topic
+# Add DLQ
 ################################################
 
 Parameters:
@@ -46,27 +46,6 @@ Resources:
     Properties:
       QueueName: !Sub ${Prefix}-Queue1-DLQ
 
-  Queue2:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ${Prefix}-Queue2
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt Queue2DLQ.Arn
-        maxReceiveCount: !Ref RedriveReceiveCount
-      VisibilityTimeout: !Ref VisibilityTimeoutValue
-  Queue2DLQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub ${Prefix}-Queue2-DLQ
-
-  # Another way to define a Subscription
-  Queue2Subscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      Endpoint: !GetAtt Queue2.Arn
-      Protocol: sqs
-      TopicArn: !Ref Topic
-
   # Queue Policy to give Topic permission to write to Queues
   EventPolicy:
     Type: AWS::SQS::QueuePolicy
@@ -86,7 +65,6 @@ Resources:
           Sid: Allow-SendMessage-To-Queues
       Queues:
       - !Ref Queue1
-      - !Ref Queue2
 
 Outputs:
   Topic:
@@ -95,6 +73,3 @@ Outputs:
   Queue1:
     Description: Queue 1 URL
     Value: !Ref Queue1
-  Queue2:
-    Description: Queue 2 URL
-    Value: !Ref Queue2
