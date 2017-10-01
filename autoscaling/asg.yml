@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AutoScaling Group example
+
+################################################
+# AutoScaling group of Nginx servers with ALB
+#
+# Note: Does not run in VPC
+################################################
+
+Parameters:
+  AvailabilityZone1:
+    Default: us-east-2a
+    Description: First Availablity Zone
+    Type: AWS::EC2::AvailabilityZone::Name
+  AvailabilityZone2:
+    Default: us-east-2b
+    Description: Second Availablity Zone
+    Type: AWS::EC2::AvailabilityZone::Name
+  AMI:
+    Default: ami-ea87a78f
+    Description: Amazon Machine Image for Amazon Linux
+    Type: AWS::EC2::Image::Id
+  EC2KeyPair:
+    Description: EC2 Key Pair
+    Type: String
+  InstanceType:
+    Default: t2.nano
+    Description: EC2 Instance Type
+    Type: String
+  PublicHostedZoneId:
+    Description: Route53 Hosted Zone ID
+    Type: String
+  DomainName:
+    Description: Domain name for ELB alias, must match certificate
+    Type: String
+  CertificateId:
+    Description: Certification ID
+    Type: String
+
+Resources:
+
+  # Security Group for ELB allows access from any IP on port 443 (HTTPS)
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ELB Security Group
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 443
+          IpProtocol: TCP
+          ToPort: 443
+
+  # Security Group for EC2 instances allows access from ELB Security Group on port 80
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2 Security Group
+      SecurityGroupIngress:
+        - FromPort: 80
+          IpProtocol: TCP
+          SourceSecurityGroupId: !GetAtt ELBSecurityGroup.GroupId
+          ToPort: 80
+# Commented out SSH access
+#        - CidrIp: 0.0.0.0/0
+#          FromPort: 22
+#          IpProtocol: TCP
+#          ToPort: 22
+
+  # Launch Configuration defines how new instances are launched in AutoScaling Group
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      # CloudFormation init can be used to install packages, generate files, start services and run arbritary commands
+      # It can be used as a lightweight alternative to Chef/Puppet/Salt/Ansible etc. for simple configuration
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            # Install Nginx using yum
+            yum:
+              nginx: []
+          files:
+            # Overwrite default Nginx welcome page
+            /usr/share/nginx/html/index.html:
+              content: !Sub |
+                <html>
+                <head><title>Introduction to CloudFormation</title></head>
+                <body>
+                  <h1>Hello CodeCamp</h1>
+                  <p>Code available at <a href="https://github.com/andrewdmay/codecamp-cloudformation">Github</a>.</p>
+                  <p>Running in ${AWS::Region} AWS Region.</p>
+                </body>
+                </html>
+              mode: '000744'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              # Ensure Nginx process is started and restarted if index.html is changed by CloudFormation
+              nginx:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /usr/share/nginx/html/index.html
+    Properties:
+      KeyName: !Ref EC2KeyPair
+      ImageId: !Ref AMI
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !GetAtt EC2SecurityGroup.GroupId
+      UserData:
+        # Triggers CloudFormation::Init to run
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfiguration --region ${AWS::Region}
+
+  # AutoScaling Group defines the number of EC2 instances that will run
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones:
+        - !Ref AvailabilityZone1
+        - !Ref AvailabilityZone2
+      DesiredCapacity: 2
+      HealthCheckGracePeriod: 600
+      HealthCheckType: ELB
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      LoadBalancerNames:
+        - !Ref LoadBalancer
+      MaxSize: 4
+      MinSize: 2
+
+  # Using "Classic" Elastic Load Balancer
+  # Appliacation and Network Load Balancers require Virtual Private Cloud (VPC)
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      AvailabilityZones:
+        - !Ref AvailabilityZone1
+        - !Ref AvailabilityZone2
+      HealthCheck:
+        HealthyThreshold: 2
+        Interval: 30
+        Target: HTTP:80/
+        Timeout: 5
+        UnhealthyThreshold: 5
+      LoadBalancerName: CodeCamp-LoadBalancer
+      Listeners:
+        - InstancePort: 80
+          InstanceProtocol: HTTP
+          LoadBalancerPort: 443
+          Protocol: HTTPS
+          SSLCertificateId: !Ref CertificateId
+      Scheme: internet-facing
+      SecurityGroups:
+        - !GetAtt ELBSecurityGroup.GroupId
+
+  # Create a DNS alias for the Load Balancer DNS entry
+  Route53Alias:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt LoadBalancer.DNSName
+        EvaluateTargetHealth: False
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneNameID
+      Comment: Application Alias
+      HostedZoneId: !Ref PublicHostedZoneId
+      Name: !Sub ${DomainName}.
+      Type: A
+
+  # Scale Up one instance, don't scale again for 5 minutes
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: 300
+      ScalingAdjustment: 1
+
+  # Trigger Scale Up policy if CPU >= 75% on average in last minute
+  HighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+      - !Ref ScaleUpPolicy
+      AlarmDescription: High CPU
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      EvaluationPeriods: 1
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      OKActions: []
+      Period: 60
+      Statistic: Average
+      Threshold: 75
+
+  # Scale Down one instance, don't scale again for 1 minute
+  ScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: 60
+      ScalingAdjustment: 1
+
+  # Trigger Scale Down policy if CPU <= 30 for last 3 minutes
+  LowCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+      - !Ref ScaleDownPolicy
+      AlarmDescription: Low CPU
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      EvaluationPeriods: 3
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      OKActions: []
+      Period: 60
+      Statistic: Average
+      Threshold: 30
