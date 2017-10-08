@@ -11,7 +11,6 @@ Two SQS Queues subscribe to an SNS Topic with both Queues receiving a copy of al
 Queues are configured with Dead Letter Queues where messages that have been read and not deleted multiple times will be sent.
 
 ### Templates
-
 The templates would normally evolve as commits to the same file, but to make it easier to compare there are separate files in this example.
 
 * messaging-1.yml - Creates the Topic
@@ -32,7 +31,20 @@ A Route53 alias is created for the ELB that matches the domain name in the certi
 
 CloudWatch alarms are used to scale the AutoScaling Group size up or down based upon average CPU.
 
+## AWS CLI commands
+
+[CloudFormation CLI Documentation](http://docs.aws.amazon.com/cli/latest/reference/cloudformation/index.html)
+
+* Validate a template locally:
+  `aws cloudformation validate-template --template-body=file://messaging-1.yml`
+* Create a stack from a template (no parameters in this example):
+  `aws cloudformation create-stack --stack-name=CodeCamp-Messaging --template-body=file://messaging-1.yml`
+
 ## Useful Links
 
 * [Template Anatomy](http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-anatomy.html)
 * [Template Reference](http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-reference.html)
+
+## Presentation
+
+[Presentation in PDF format](presentation.pdf)

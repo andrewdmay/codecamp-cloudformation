@@ -29,7 +29,7 @@ Resources:
       QueueName: !Sub ${Prefix}-Queue1
 
   # Queue Policy to give Topic permission to write to Queues
-  EventPolicy:
+  QueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
       PolicyDocument:

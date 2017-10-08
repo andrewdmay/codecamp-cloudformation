@@ -68,7 +68,7 @@ Resources:
       TopicArn: !Ref Topic
 
   # Queue Policy to give Topic permission to write to Queues
-  EventPolicy:
+  QueuePolicy:
     Type: AWS::SQS::QueuePolicy
     Properties:
       PolicyDocument:
