@@ -131,7 +131,7 @@ Resources:
       MinSize: 2
 
   # Using "Classic" Elastic Load Balancer
-  # Appliacation and Network Load Balancers require Virtual Private Cloud (VPC)
+  # Application and Network Load Balancers require Virtual Private Cloud (VPC)
   LoadBalancer:
     Type: AWS::ElasticLoadBalancing::LoadBalancer
     Properties:
@@ -203,7 +203,7 @@ Resources:
       AdjustmentType: ChangeInCapacity
       AutoScalingGroupName: !Ref AutoScalingGroup
       Cooldown: 60
-      ScalingAdjustment: 1
+      ScalingAdjustment: -1
 
   # Trigger Scale Down policy if CPU <= 30 for last 3 minutes
   LowCPUAlarm:
